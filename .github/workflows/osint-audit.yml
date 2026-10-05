@@ -1,0 +1,73 @@
+# Authorised self-audit runner.
+#
+# Scope, stated so it cannot drift:
+#   - PUBLIC data only. These tools query public profile pages and public
+#     endpoints; they do not authenticate, bypass, or access anything private.
+#   - Run it on YOURSELF, or on a documented public figure, or in support of a
+#     request whose basis is recorded. Not on private individuals at will.
+#   - A username match is NOT a person match. Two people share handles routinely.
+#     Any output here is a lead to verify, never an attribution. Reports must
+#     carry an explicit "not confidently attributed" section.
+#   - No account creation, no impersonation, no sock-puppet tooling, no
+#     subscriber or identity-database lookups.
+#
+# The workflow is dispatch-only on purpose: nothing runs on a push, so a fork of
+# this repository cannot start probing targets on its own.
+
+name: OSINT self-audit (maigret)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Public handle to enumerate. Self-audit or documented basis only.'
+        required: true
+        default: 'soxoj'
+      top:
+        description: 'How many of the highest-ranked sites to check'
+        required: false
+        default: '300'
+
+jobs:
+  enumerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install maigret
+        run: pip install maigret
+
+      - name: What this CLI actually accepts
+        run: maigret --help | head -70
+
+      - name: Enumerate
+        run: |
+          set -u
+          mkdir -p out
+          echo "target: ${{ inputs.target }}  top-sites: ${{ inputs.top }}"
+          maigret "${{ inputs.target }}" \
+            --top-sites "${{ inputs.top }}" \
+            --timeout 20 \
+            --folderoutput out \
+            --json ndjson \
+            --txt || true
+          echo "== produced =="
+          find out -type f | head -30
+          find . -maxdepth 2 -name '*.json' -o -maxdepth 2 -name '*.txt' | head -20
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maigret-report
+          path: |
+            out
+            reports
+            *.json
+            *.txt
+          if-no-files-found: warn
